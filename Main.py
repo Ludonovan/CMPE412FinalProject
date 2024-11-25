@@ -1,4 +1,41 @@
+import os
+import ssl
+
+import pyotp
 import random
+import smtplib
+from email.mime.text import MIMEText
+from dotenv import load_dotenv
+
+load_dotenv("cred.env")
+
+# def get_otp():
+#     return pyotp.TOTP(pyotp.random_base32()).now
+
+def get_otp():
+    return random.randint(100000,999999)
+
+def send_otp(email, otp):
+    email = email[:-1]
+    my_email = str(os.getenv("EMAIL"))
+    my_pass = str(os.getenv("PASS"))
+    if my_email is not None and my_pass is not None:
+        msg = MIMEText(f"Your OTP is: {str(otp)}")
+        msg['Subject'] = "Your MFA Code"
+        msg['From'] = my_email
+        msg['To'] = email
+
+        context = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls(context=context)
+            server.login(my_email, my_pass)
+            server.sendmail(my_email, email, msg.as_string())
+
+    else:
+        print("There was an error sending the OTP.")
+
+def verify_otp(otp, user_otp):
+    return otp == user_otp
 
 def salt():
     length = 5
@@ -6,9 +43,7 @@ def salt():
     end = (10 ** length) - 1
     return random.randint(start, end)
 
-
-
-def hash(pw, saltVal):
+def hash_(pw, saltVal):
     npw = ""
     for p in pw:
         npw += str(ord(p)%10)
@@ -17,23 +52,29 @@ def hash(pw, saltVal):
         res *= 10
     return res
 
-
 def load():
     flag = False
-    while flag == False:
+    userID = ""
+    while not flag:
         userID = input("UserID: ")
         if len(userID) > 10:
             print("Choose a shorter ID")
         else:
             flag = True
     password = input("Password: ")
+    email = input("Email: ")
     saltVal = salt()
-    hashed = hash(password, saltVal)
+    hashed_pass = hash_(password, saltVal)
 
+    store_password(userID, saltVal, hashed_pass, email)
+
+
+def store_password(userID, salt_val, hashed_pass, hashed_email):
     with open('password_file.txt', 'a') as file:
-        file.write(f"{userID},{saltVal},{hashed}\n")
+        file.write(f"{userID},{salt_val},{hashed_pass},{hashed_email}\n")
     print(f"Password for {userID} has been stored.")
-    
+
+
 def verify():
     userID_input = input("Enter UserID: ")
     password_input = input("Enter Password: ")
@@ -42,18 +83,23 @@ def verify():
         lines = file.readlines()
 
     for line in lines:
-        stored_userID, stored_salt, stored_hash = line.split(',')
+        stored_userID, stored_salt, stored_hash, stored_email = line.split(',')
         stored_salt = int(stored_salt)
         stored_hash = int(stored_hash)
 
         if stored_userID == userID_input:
-            input_hash = hash(password_input, stored_salt)
+            input_hash = hash_(password_input, stored_salt)
             if input_hash == stored_hash:
-                print("ACCESS GRANTED")
-                return True
-            else:
-                print("ACCESS DENIED")
-                return False
+                print(f"Sending OTP to {stored_email}\n")
+                otp = get_otp()
+                send_otp(stored_email, otp)
+                user_otp = input("Enter the OTP you received: ")
+                if verify_otp(int(user_otp), otp):
+                    print("ACCESS GRANTED")
+                    return True
+                else:
+                    print("ACCESS DENIED")
+                    return False
 
     print("UserID not found.")
     return False
@@ -62,7 +108,7 @@ def verify():
 def main():
     inp = input("New user? (y/n): ")
     if inp == "y":
-    	load()
+        load()
     elif inp == "n":
         verify()
     else:
