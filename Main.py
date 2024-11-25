@@ -1,16 +1,14 @@
 import os
 import ssl
 
-import pyotp
 import random
 import smtplib
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
+from tkinter import Entry, Tk
 
 load_dotenv("cred.env")
-
-# def get_otp():
-#     return pyotp.TOTP(pyotp.random_base32()).now
+master = Tk()
 
 def get_otp():
     return random.randint(100000,999999)
@@ -61,10 +59,13 @@ def load():
             print("Choose a shorter ID")
         else:
             flag = True
-    password = input("Password: ")
+    # password = Entry(master, bd=5, width=20, show="*")
+    # password.pack()
+    # master.mainloop()
+    password = input("Enter Password: ")
     email = input("Email: ")
     saltVal = salt()
-    hashed_pass = hash_(password, saltVal)
+    hashed_pass = hash_(str(password), saltVal)
 
     store_password(userID, saltVal, hashed_pass, email)
 
@@ -77,32 +78,34 @@ def store_password(userID, salt_val, hashed_pass, hashed_email):
 
 def verify():
     userID_input = input("Enter UserID: ")
+    # password_input = Entry(master, bd=5, width=20, show="*")
+    # password_input.pack()
+    # master.mainloop()
     password_input = input("Enter Password: ")
 
     with open('password_file.txt', 'r') as file:
         lines = file.readlines()
 
+    user_found = False
     for line in lines:
         stored_userID, stored_salt, stored_hash, stored_email = line.split(',')
         stored_salt = int(stored_salt)
         stored_hash = int(stored_hash)
-
         if stored_userID == userID_input:
-            input_hash = hash_(password_input, stored_salt)
+            input_hash = hash_(str(password_input), stored_salt)
             if input_hash == stored_hash:
+                user_found = True
                 print(f"Sending OTP to {stored_email}\n")
                 otp = get_otp()
                 send_otp(stored_email, otp)
                 user_otp = input("Enter the OTP you received: ")
                 if verify_otp(int(user_otp), otp):
                     print("ACCESS GRANTED")
-                    return True
                 else:
                     print("ACCESS DENIED")
-                    return False
+    if not user_found:
+        print("UserID not found.")
 
-    print("UserID not found.")
-    return False
     
 
 def main():
