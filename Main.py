@@ -168,7 +168,6 @@ def login():
         if dec == userID:
             result = r
         else:
-            print(dec)
             result = None
 
     # If id found, send otp and verify
