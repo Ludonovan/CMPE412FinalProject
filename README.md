@@ -1,16 +1,9 @@
-# SALTED   
-Final project for CMPE 412 (Networks and Security) at Shippensburg University.  
+# SALTED: A Mock UI For a Login System   
+### Final project for CMPE 412 (Networks and Security) at Shippensburg University.  
 
-### TODO:
- - Add Comments!!
- - Add a proper database for password file
- - Also check user based on salt value
-   - Should fix sending multiple OTP codes if two users have the same username & password
-     - Usually not an issue, but will still try to send multiple otps even if two users just have the same username.
 
-### How To Run
-#### Run Main.py
-
-### Known Issues
-  - dotenv not working on windows
-
+#### Features:
+- "Account" Registration and Login with multifactor authentication through email using GMail SMTP server.
+- Passwords hashed using SHA256 and a generated salt value.  
+- Encryption of username and email using Fernet.  
+- Database to store user data using SQLite.  

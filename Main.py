@@ -1,26 +1,64 @@
+'''
+Author: Lucas Donovan
+Description: A mock user interface for a login/register system.
+'''
+
 import os
-import ssl
 import random
+import ssl
 import smtplib
 from email.mime.text import MIMEText
+import sqlite3
+import hashlib
+from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from tkinter import Tk, Label, Entry, Button, messagebox, Toplevel, simpledialog
 
+# Load email credentials for gmail SMTP server
 load_dotenv("cred.env")
 
+# init database
+db = sqlite3.connect('users.db')
+cursor = db.cursor()
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT UNIQUE NOT NULL,
+    salt INTEGER NOT NULL,
+    hashed_password TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL
+)
+''')
+db.commit()
+
+# Load a key value used for encryption
+def load_key(filename):
+    if os.path.exists(filename):
+        with open(filename, 'rb') as file:
+            return file.read()
+
+# Create separate keys for username and email encryption
+uname_key = load_key('uname.key')
+email_key = load_key('email.key')
+uname_f = Fernet(uname_key)
+email_f = Fernet(email_key)
+
+# Create a random 6-digit one time passcode
 def get_otp():
     return random.randint(100000, 999999)
 
+# Send a user a code for MFA
 def send_otp(email, otp):
     email = email.strip()
     my_email = os.getenv("EMAIL")
     my_pass = os.getenv("PASS")
     if my_email is not None and my_pass is not None:
-        msg = MIMEText(f"Your OTP is: {str(otp)}")
+        # Construct message
+        msg = MIMEText(f"Your one time password is: {str(otp)}")
         msg['Subject'] = "Your MFA Code"
         msg['From'] = my_email
         msg['To'] = email
 
+        # Establish connection
         context = ssl.create_default_context()
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls(context=context)
@@ -29,46 +67,70 @@ def send_otp(email, otp):
     else:
         messagebox.showerror("Error", "Failed to send OTP. Check your email credentials.")
 
+# Verify that the user-entered OTP is the same as the one that was sent
 def verify_otp(otp, user_otp):
     return otp == user_otp
 
+# Generate a salt within the 64-bit signed integer range
 def salt():
-    length = 5
-    start = 10 ** (length - 1)
-    end = (10 ** length) - 1
-    return random.randint(start, end)
+    return random.randint(0, 2**63 - 1)
 
-def hash_(pw, saltVal):
-    npw = ""
-    for p in pw:
-        npw += str(ord(p) % 10)
-    res = saltVal ^ int(npw)
-    if (res & 0xFFFF) < 10000:
-        res *= 10
-    return res
+# Use SHA256 to hash a password using a salt value
+def hash_password(password, salt_value):
+    hasher = hashlib.sha256()
+    pwd_with_salt = f"{password}{salt_value}".encode()
+    hasher.update(pwd_with_salt)
+    return hasher.hexdigest()
 
-def store_password(userID, salt_val, hashed_pass, email):
-    with open('password_file.txt', 'a') as file:
-        file.write(f"{userID},{salt_val},{hashed_pass},{email}\n")
-    messagebox.showinfo("Success", f"Password for {userID} has been stored.")
+# Store encrypted username, salt value, hashed password, and encrypted email
+def store_password(user, salt_val, hashed_pass, email):
+    try:
+        cursor.execute('''
+        INSERT INTO users (user_id, salt, hashed_password, email)
+        VALUES (?, ?, ?, ?)
+        ''', (user, salt_val, hashed_pass, email))
+        db.commit()
+        messagebox.showinfo("Success", "Registration successful!")
+    except sqlite3.IntegrityError as e:
+        print(f"IntegrityError: {e}")
+        messagebox.showerror("Error", "UserID or Email already exists.")
 
+# Register an account
 def register():
+    # Save user credentials
     def save_user():
         userID = user_entry.get()
         password = pass_entry.get()
         email = email_entry.get()
-        if len(userID) > 10:
-            messagebox.showerror("Error", "UserID must be 10 characters or less.")
-            return
+
         if not userID or not password or not email:
             messagebox.showerror("Error", "All fields are required.")
             return
 
-        saltVal = salt()
-        hashed_pass = hash_(str(password), saltVal)
-        store_password(userID, saltVal, hashed_pass, email)
+        # Only accept usernames less than 20 characters
+        if len(userID) > 20:
+            messagebox.showerror("Error", "UserID must be 20 characters or less.")
+            return
+
+        # Encrypt username and email
+        encrypted_uname = uname_f.encrypt(userID.encode()).decode()
+        encrypted_email = email_f.encrypt(email.encode()).decode()
+
+        # Hash password with generated salt value
+        salt_val = salt()
+        hashed_pass = hash_password(password, salt_val)
+        try:
+            cursor.execute('''
+                    INSERT INTO users (user_id, salt, hashed_password, email)
+                    VALUES (?, ?, ?, ?)
+                    ''', (encrypted_uname, salt_val, hashed_pass, encrypted_email))
+            db.commit()
+            messagebox.showinfo("Success", "Registration successful!")
+        except sqlite3.IntegrityError as e:
+            messagebox.showerror("Error", "UserID or Email already exists.")
         register_window.destroy()
 
+    # Register UI
     register_window = Toplevel()
     register_window.title("Register")
     register_window.geometry("300x200")
@@ -87,7 +149,10 @@ def register():
 
     Button(register_window, text="Register", command=save_user).pack()
 
+# Validate a username and password
+# Send user a one time passcode and verify
 def login():
+    # Get user inputs
     userID = user_entry.get()
     password = pass_entry.get()
 
@@ -95,26 +160,34 @@ def login():
         messagebox.showerror("Error", "All fields are required.")
         return
 
-    with open('password_file.txt', 'r') as file:
-        lines = file.readlines()
+    # Look for matching user id
+    cursor.execute('SELECT user_id, salt, hashed_password, email FROM users')
+    result = cursor.fetchall()
+    for r in result:
+        dec = uname_f.decrypt(r[0]).decode()
+        if dec == userID:
+            result = r
+        else:
+            print(dec)
+            result = None
 
-    user_found = False
-    for line in lines:
-        stored_userID, stored_salt, stored_hash, stored_email = line.strip().split(',')
-        stored_salt = int(stored_salt)
-        stored_hash = int(stored_hash)
-        if stored_userID == userID:
-            input_hash = hash_(str(password), stored_salt)
-            if input_hash == stored_hash:
-                user_found = True
-                otp = get_otp()
-                send_otp(stored_email, otp)
-                user_otp = simpledialog.askstring("OTP Verification", "Enter the OTP sent to your email:")
-                if user_otp and verify_otp(int(user_otp), otp):
-                    messagebox.showinfo("Success", "ACCESS GRANTED")
-                else:
-                    messagebox.showerror("Error", "ACCESS DENIED")
-    if not user_found:
+    # If id found, send otp and verify
+    if result:
+        stored_username, stored_salt, stored_hash, stored_email = result
+
+        input_hash = hash_password(password, stored_salt)
+        if input_hash == stored_hash:
+            decrypted_email = email_f.decrypt(stored_email).decode()
+            otp = get_otp()
+            send_otp(decrypted_email, otp)
+            user_otp = simpledialog.askstring("OTP Verification", "Enter the OTP sent to " + decrypted_email + ": ")
+            if user_otp and verify_otp(otp, int(user_otp)):
+                messagebox.showinfo("Success", "ACCESS GRANTED")
+            else:
+                messagebox.showerror("Error", "ACCESS DENIED")
+        else:
+            messagebox.showerror("Error", "Incorrect password.")
+    else:
         messagebox.showerror("Error", "UserID not found.")
 
 # Main UI
