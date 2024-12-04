@@ -1,7 +1,7 @@
-'''
+"""
 Author: Lucas Donovan
 Description: A mock user interface for a login/register system.
-'''
+"""
 
 import os
 import random
@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from tkinter import Tk, Label, Entry, Button, messagebox, Toplevel, simpledialog
 
 # Load email credentials for gmail SMTP server
-load_dotenv("cred.env")
+load_dotenv('cred.env')
 
 # init database
 db = sqlite3.connect('users.db')
@@ -49,8 +49,8 @@ def get_otp():
 # Send a user a code for MFA
 def send_otp(email, otp):
     email = email.strip()
-    my_email = os.getenv("EMAIL")
-    my_pass = os.getenv("PASS")
+    my_email = os.getenv('EMAIL')
+    my_pass = os.getenv('PASS')
     if my_email is not None and my_pass is not None:
         # Construct message
         msg = MIMEText(f"Your one time password is: {str(otp)}")
@@ -60,7 +60,7 @@ def send_otp(email, otp):
 
         # Establish connection
         context = ssl.create_default_context()
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls(context=context)
             server.login(my_email, my_pass)
             server.sendmail(my_email, email, msg.as_string())
@@ -126,7 +126,7 @@ def register():
                     ''', (encrypted_uname, salt_val, hashed_pass, encrypted_email))
             db.commit()
             messagebox.showinfo("Success", "Registration successful!")
-        except sqlite3.IntegrityError as e:
+        except sqlite3.IntegrityError:
             messagebox.showerror("Error", "UserID or Email already exists.")
         register_window.destroy()
 
@@ -162,28 +162,38 @@ def login():
 
     # Look for matching user id
     cursor.execute('SELECT user_id, salt, hashed_password, email FROM users')
-    result = cursor.fetchall()
-    for r in result:
-        dec = uname_f.decrypt(r[0]).decode()
-        if dec == userID:
-            result = r
-        else:
-            result = None
+    result = None
+    for r in cursor.fetchall():
+        try:
+            dec = uname_f.decrypt(r[0].encode()).decode()
+            if dec == userID:
+                result = r
+                break    
+        except Exception as e:
+            messagebox.showerror("Error", f"Decryption failed: {str(e)}")
+            return
 
     # If id found, send otp and verify
     if result:
         stored_username, stored_salt, stored_hash, stored_email = result
 
+        # Ensure stored_email is in bytes before decrypting
+        if isinstance(stored_email, str):
+            stored_email = stored_email.encode()
+
         input_hash = hash_password(password, stored_salt)
         if input_hash == stored_hash:
-            decrypted_email = email_f.decrypt(stored_email).decode()
-            otp = get_otp()
-            send_otp(decrypted_email, otp)
-            user_otp = simpledialog.askstring("OTP Verification", "Enter the OTP sent to " + decrypted_email + ": ")
-            if user_otp and verify_otp(otp, int(user_otp)):
-                messagebox.showinfo("Success", "ACCESS GRANTED")
-            else:
-                messagebox.showerror("Error", "ACCESS DENIED")
+            try:
+                decrypted_email = email_f.decrypt(stored_email).decode()
+                otp = get_otp()
+                send_otp(decrypted_email, otp)
+                user_otp = simpledialog.askstring("OTP Verification", "Enter the OTP sent to " + decrypted_email + ": ")
+                if user_otp and verify_otp(otp, int(user_otp)):
+                    messagebox.showinfo("Success", "ACCESS GRANTED")
+                else:
+                    messagebox.showerror("Error", "ACCESS DENIED")
+            except Exception as e:
+                messagebox.showerror("Error", f"Email decryption failed: {str(e)}")
         else:
             messagebox.showerror("Error", "Incorrect password.")
     else:
