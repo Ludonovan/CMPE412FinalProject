@@ -1,8 +1,3 @@
-"""
-Author: Lucas Donovan
-Description: A mock user interface for a login/register system.
-"""
-
 import os
 import random
 import ssl
@@ -13,11 +8,12 @@ import hashlib
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from tkinter import Tk, Label, Entry, Button, messagebox, Toplevel, simpledialog
+import re
 
 # Load email credentials for gmail SMTP server
 load_dotenv('cred.env')
 
-# init database
+# Initialize database
 db = sqlite3.connect('users.db')
 cursor = db.cursor()
 cursor.execute('''
@@ -42,7 +38,7 @@ email_key = load_key('email.key')
 uname_f = Fernet(uname_key)
 email_f = Fernet(email_key)
 
-# Create a random 6-digit one time passcode
+# Create a random 6-digit one-time passcode
 def get_otp():
     return random.randint(100000, 999999)
 
@@ -51,14 +47,11 @@ def send_otp(email, otp):
     email = email.strip()
     my_email = os.getenv('EMAIL')
     my_pass = os.getenv('PASS')
-    if my_email is not None and my_pass is not None:
-        # Construct message
-        msg = MIMEText(f"Your one time password is: {str(otp)}")
+    if my_email and my_pass:
+        msg = MIMEText(f"Your one-time password is: {str(otp)}")
         msg['Subject'] = "Your MFA Code"
         msg['From'] = my_email
         msg['To'] = email
-
-        # Establish connection
         context = ssl.create_default_context()
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls(context=context)
@@ -82,6 +75,23 @@ def hash_password(password, salt_value):
     hasher.update(pwd_with_salt)
     return hasher.hexdigest()
 
+# Validate password strength
+def is_strong_password(password):
+    if len(password) < 10:
+        return "Password must be at least 10 characters long."
+    if not re.search(r'[A-Z]', password):
+        return "Password must include at least one uppercase letter."
+    if not re.search(r'\d', password):
+        return "Password must include at least one number."
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        return "Password must include at least one special character."
+    return "Strong"
+
+# Make sure the entered email is valid
+def is_valid_email(email):
+    email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
+    return re.match(email_regex, email) is not None
+
 # Store encrypted username, salt value, hashed password, and encrypted email
 def store_password(user, salt_val, hashed_pass, email):
     try:
@@ -97,20 +107,33 @@ def store_password(user, salt_val, hashed_pass, email):
 
 # Register an account
 def register():
-    # Save user credentials
     def save_user():
         userID = user_entry.get()
+        # Validate username length
+        if len(userID) > 20:
+            messagebox.showerror("Error", "UserID must be 20 characters or less.")
+            return
+
         password = pass_entry.get()
+        # Validate password strength
+        password_strength = is_strong_password(password)
+        if password_strength != "Strong":
+            messagebox.showerror("Error", password_strength)
+            return
+
         email = email_entry.get()
+        # Make sure email is valid
+        if not is_valid_email(email):
+            messagebox.showerror("Error", "Invalid email address.")
+            return
 
         if not userID or not password or not email:
             messagebox.showerror("Error", "All fields are required.")
             return
 
-        # Only accept usernames less than 20 characters
-        if len(userID) > 20:
-            messagebox.showerror("Error", "UserID must be 20 characters or less.")
-            return
+
+
+
 
         # Encrypt username and email
         encrypted_uname = uname_f.encrypt(userID.encode()).decode()
@@ -119,11 +142,13 @@ def register():
         # Hash password with generated salt value
         salt_val = salt()
         hashed_pass = hash_password(password, salt_val)
+
+        # Store user data
         try:
             cursor.execute('''
-                    INSERT INTO users (user_id, salt, hashed_password, email)
-                    VALUES (?, ?, ?, ?)
-                    ''', (encrypted_uname, salt_val, hashed_pass, encrypted_email))
+            INSERT INTO users (user_id, salt, hashed_password, email)
+            VALUES (?, ?, ?, ?)
+            ''', (encrypted_uname, salt_val, hashed_pass, encrypted_email))
             db.commit()
             messagebox.showinfo("Success", "Registration successful!")
         except sqlite3.IntegrityError:
@@ -168,7 +193,7 @@ def login():
             dec = uname_f.decrypt(r[0].encode()).decode()
             if dec == userID:
                 result = r
-                break    
+                break
         except Exception as e:
             messagebox.showerror("Error", f"Decryption failed: {str(e)}")
             return

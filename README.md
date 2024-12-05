@@ -3,14 +3,19 @@
 
 
 #### Features:
-- "Account" Registration and Login with multifactor authentication through email using GMail SMTP server.
-- Passwords hashed using SHA256 and a generated salt value.  
+- Basic GUI using tkinter
+- Account Registration and login
+- Multifactor authentication through email using GMail SMTP server.
+- Passwords hashing using SHA256 and a generated salt value.  
 - Encryption of username and email using Fernet.  
 - Database to store user data using SQLite.  
+- Loading of sensitive data in '.env' files using dotenv
+  - Ensures credentials are not hardcoded
 
-#### Future Improvements
-- Check for valididity of emails during registration
-- Check that passwords are strong passwords (10+ chars, uppercase, nums, special char)
-  - Update UI with password strength
-- Make sure 2 people cant use the same email
-- Reset password feature
+#### Future Improvements:
+- Implement a reset password feature
+- Implement better database so things aren't stored locally
+- Implement better key storage
+- Improve error messages
+
+
