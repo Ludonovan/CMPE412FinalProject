@@ -1,4 +1,4 @@
-# SALTED: A Mock UI For a Login System   
+# A Mock UI For a Login System   
 ### Final project for CMPE 412 (Networks and Security) at Shippensburg University.  
 
 
